@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AniWorld Downloader</title>
+    <style>
+        .aniworld-container { max-width: 1200px; margin: 0 auto; padding: 1em; }
+        .aniworld-search-box { display: flex; gap: 0.5em; margin-bottom: 1.5em; }
+        .aniworld-search-box input { flex: 1; }
+        .aniworld-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1em; }
+        .aniworld-card { background: rgba(255,255,255,0.05); border-radius: 8px; padding: 1em; cursor: pointer; transition: background 0.2s; }
+        .aniworld-card:hover { background: rgba(255,255,255,0.1); }
+        .aniworld-card h3 { margin: 0 0 0.5em; font-size: 1.1em; }
+        .aniworld-card p { margin: 0; opacity: 0.7; font-size: 0.9em; }
+
+        .aniworld-series-header { display: flex; gap: 1.5em; margin-bottom: 1.5em; }
+        .aniworld-cover { width: 200px; border-radius: 8px; flex-shrink: 0; }
+        .aniworld-series-info h2 { margin: 0 0 0.5em; }
+        .aniworld-genres { display: flex; gap: 0.5em; flex-wrap: wrap; margin-bottom: 0.5em; }
+        .aniworld-genre { background: rgba(0,164,220,0.3); padding: 0.2em 0.6em; border-radius: 4px; font-size: 0.8em; }
+
+        .aniworld-seasons { display: flex; gap: 0.5em; flex-wrap: wrap; margin-bottom: 1em; }
+        .aniworld-season-btn { padding: 0.4em 1em; border-radius: 4px; background: rgba(255,255,255,0.1); border: none; color: inherit; cursor: pointer; }
+        .aniworld-season-btn.active { background: rgba(0,164,220,0.5); }
+
+        .aniworld-episodes { display: flex; flex-direction: column; gap: 0.5em; }
+        .aniworld-episode { display: flex; align-items: center; justify-content: space-between; padding: 0.8em 1em; background: rgba(255,255,255,0.05); border-radius: 6px; }
+        .aniworld-episode-info { flex: 1; }
+        .aniworld-episode-num { font-weight: bold; margin-right: 0.8em; opacity: 0.6; }
+        .aniworld-episode-actions { display: flex; gap: 0.5em; }
+
+        .aniworld-btn { padding: 0.4em 0.8em; border-radius: 4px; border: none; cursor: pointer; font-size: 0.85em; }
+        .aniworld-btn-primary { background: #00a4dc; color: white; }
+        .aniworld-btn-primary:hover { background: #0090c4; }
+        .aniworld-btn-secondary { background: rgba(255,255,255,0.15); color: inherit; }
+
+        .aniworld-downloads { margin-top: 1.5em; }
+        .aniworld-download-item { display: flex; align-items: center; gap: 1em; padding: 0.8em; background: rgba(255,255,255,0.05); border-radius: 6px; margin-bottom: 0.5em; }
+        .aniworld-download-progress { width: 100px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
+        .aniworld-download-bar { height: 100%; background: #00a4dc; transition: width 0.3s; }
+        .aniworld-status { padding: 0.2em 0.5em; border-radius: 3px; font-size: 0.8em; }
+        .aniworld-status-downloading { background: rgba(0,164,220,0.3); }
+        .aniworld-status-completed { background: rgba(76,175,80,0.3); }
+        .aniworld-status-failed { background: rgba(244,67,54,0.3); }
+        .aniworld-status-queued { background: rgba(255,152,0,0.3); }
+
+        .aniworld-back-btn { margin-bottom: 1em; }
+        .aniworld-empty { text-align: center; padding: 3em; opacity: 0.5; }
+        .aniworld-tabs { display: flex; gap: 0; border-bottom: 2px solid rgba(255,255,255,0.1); margin-bottom: 1em; }
+        .aniworld-tab { padding: 0.6em 1.2em; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .aniworld-tab.active { border-bottom-color: #00a4dc; color: #00a4dc; }
+    </style>
+</head>
+<body>
+    <div id="AniWorldPage" data-role="page" class="page type-interior">
+        <div data-role="content">
+            <div class="content-primary aniworld-container">
+                <div class="sectionTitleContainer flex align-items-center">
+                    <h2 class="sectionTitle">AniWorld Downloader</h2>
+                </div>
+
+                <div class="aniworld-tabs">
+                    <div class="aniworld-tab active" data-tab="search" onclick="AniWorld.switchTab('search')">Search</div>
+                    <div class="aniworld-tab" data-tab="downloads" onclick="AniWorld.switchTab('downloads')">Downloads</div>
+                </div>
+
+                <div id="searchTab">
+                    <div class="aniworld-search-box">
+                        <input is="emby-input" type="text" id="aniworld-search-input"
+                               placeholder="Search anime on aniworld.to..." />
+                        <button is="emby-button" class="raised aniworld-btn aniworld-btn-primary"
+                                onclick="AniWorld.search()">Search</button>
+                    </div>
+                    <div id="aniworld-content"></div>
+                </div>
+
+                <div id="downloadsTab" style="display:none">
+                    <div id="aniworld-downloads"></div>
+                </div>
+            </div>
+        </div>
+        <script src="aniworld.js"></script>
+    </div>
+</body>
+</html>

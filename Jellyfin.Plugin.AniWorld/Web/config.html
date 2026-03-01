@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AniWorld Downloader</title>
+</head>
+<body>
+    <div id="AniWorldConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+         data-require="emby-input,emby-button,emby-select">
+        <div data-role="content">
+            <div class="content-primary">
+                <form id="AniWorldConfigForm">
+                    <div class="sectionTitleContainer flex align-items-center">
+                        <h2 class="sectionTitle">AniWorld Downloader Settings</h2>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="txtDownloadPath">Download Path</label>
+                        <input is="emby-input" type="text" id="txtDownloadPath"
+                               placeholder="/path/to/anime/library" />
+                        <div class="fieldDescription">
+                            Path where downloaded anime files will be saved. Should point to your Jellyfin anime library folder.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="selPreferredLanguage">Preferred Language</label>
+                        <select is="emby-select" id="selPreferredLanguage" class="emby-select-withcolor">
+                            <option value="1">German Dub</option>
+                            <option value="2">English Sub (Japanese Audio)</option>
+                            <option value="3">German Sub (Japanese Audio)</option>
+                        </select>
+                        <div class="fieldDescription">
+                            Default language for downloads.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="selPreferredProvider">Preferred Provider</label>
+                        <select is="emby-select" id="selPreferredProvider" class="emby-select-withcolor">
+                            <option value="VOE">VOE</option>
+                            <option value="Vidoza">Vidoza</option>
+                            <option value="Vidmoly">Vidmoly</option>
+                        </select>
+                        <div class="fieldDescription">
+                            Default video provider. VOE is recommended (most reliable).
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="txtNamingTemplate">File Naming Template</label>
+                        <input is="emby-input" type="text" id="txtNamingTemplate" />
+                        <div class="fieldDescription">
+                            Template for naming downloaded files. Available variables: {title}, {year}, {season}, {episode}.
+                            Default: {title} ({year})/{title} S{season}E{episode}.mkv
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="txtMaxDownloads">Max Concurrent Downloads</label>
+                        <input is="emby-input" type="number" id="txtMaxDownloads" min="1" max="5" />
+                        <div class="fieldDescription">
+                            Maximum number of simultaneous downloads (1-5).
+                        </div>
+                    </div>
+
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <script src="config.js"></script>
+    </div>
+</body>
+</html>

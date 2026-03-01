@@ -1,0 +1,18 @@
+name: "AniWorld Downloader"
+guid: "e93d1d02-df60-4545-ae3c-7bb87dff024c"
+version: "0.1.0.0"
+targetAbi: "10.11.0.0"
+framework: "net9.0"
+owner: "SiroxCW"
+overview: "Download anime from aniworld.to directly within Jellyfin"
+description: "Search, browse, and download anime from aniworld.to. Supports VOE, Vidoza, and Vidmoly providers with German Dub, English Sub, and German Sub options. Downloads are handled via ffmpeg and files are saved directly to your Jellyfin library."
+category: "General"
+artifacts:
+  - "Jellyfin.Plugin.AniWorld.dll"
+changelog: |
+  v0.1.0.0 - Initial release
+  - Search for anime on aniworld.to
+  - Browse seasons and episodes
+  - Download episodes via VOE, Vidoza, or Vidmoly
+  - Track download progress
+  - Plugin configuration page

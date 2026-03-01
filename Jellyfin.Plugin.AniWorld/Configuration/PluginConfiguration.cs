@@ -1,0 +1,40 @@
+using MediaBrowser.Model.Plugins;
+
+namespace Jellyfin.Plugin.AniWorld.Configuration;
+
+/// <summary>
+/// Plugin configuration for AniWorld Downloader.
+/// </summary>
+public class PluginConfiguration : BasePluginConfiguration
+{
+    /// <summary>
+    /// Gets or sets the download path for anime files.
+    /// </summary>
+    public string DownloadPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the preferred language.
+    /// 1 = German Dub, 2 = English Sub, 3 = German Sub.
+    /// </summary>
+    public string PreferredLanguage { get; set; } = "1";
+
+    /// <summary>
+    /// Gets or sets the preferred provider (VOE, Vidoza, Vidmoly).
+    /// </summary>
+    public string PreferredProvider { get; set; } = "VOE";
+
+    /// <summary>
+    /// Gets or sets the naming template for downloaded files.
+    /// </summary>
+    public string NamingTemplate { get; set; } = "{title} ({year})/{title} S{season}E{episode}.mkv";
+
+    /// <summary>
+    /// Gets or sets the maximum concurrent downloads.
+    /// </summary>
+    public int MaxConcurrentDownloads { get; set; } = 2;
+
+    /// <summary>
+    /// Gets or sets whether to automatically organize downloaded files into the Jellyfin library.
+    /// </summary>
+    public bool AutoOrganize { get; set; } = true;
+}
