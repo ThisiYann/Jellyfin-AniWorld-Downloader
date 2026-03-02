@@ -68,6 +68,7 @@
         .aw-ep-providers .aw-lang-group { margin-bottom: 0.5em; }
         .aw-ep-providers .aw-lang-label { font-weight: 600; font-size: 0.8em; opacity: 0.6; margin-bottom: 0.3em; }
         .aw-ep-providers .aw-provider-btns { display: flex; gap: 0.3em; flex-wrap: wrap; }
+        .aw-ep-downloaded { opacity: 0.5; font-size: 0.75em; color: #4caf50; margin-left: 0.5em; }
 
         /* Downloads */
         .aw-dl { display: flex; flex-direction: column; gap: 0.5em; }
@@ -93,6 +94,28 @@
         .aw-dl-actions { display: flex; gap: 0.3em; margin-top: 1em; }
         .aw-dl-btns { display: flex; gap: 0.3em; flex-shrink: 0; }
 
+        /* Stats cards */
+        .aw-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1em; margin-bottom: 1.5em; }
+        .aw-stat { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 1em 1.2em; text-align: center; }
+        .aw-stat-value { font-size: 1.8em; font-weight: 700; color: #00a4dc; }
+        .aw-stat-label { font-size: 0.78em; opacity: 0.5; margin-top: 0.3em; }
+        .aw-stat-value.green { color: #4caf50; }
+        .aw-stat-value.red { color: #ef5350; }
+        .aw-stat-value.orange { color: #ff9800; }
+
+        /* History table */
+        .aw-history { display: flex; flex-direction: column; gap: 0.4em; }
+        .aw-hist-item { display: flex; align-items: center; gap: 1em; padding: 0.8em 1em; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; }
+        .aw-hist-info { flex: 1; min-width: 0; }
+        .aw-hist-info strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.95em; }
+        .aw-hist-info small { opacity: 0.5; font-size: 0.8em; }
+        .aw-hist-meta { display: flex; gap: 0.8em; align-items: center; flex-shrink: 0; }
+        .aw-hist-meta .aw-hist-size { opacity: 0.5; font-size: 0.82em; min-width: 5em; text-align: right; }
+        .aw-hist-meta .aw-hist-date { opacity: 0.4; font-size: 0.78em; min-width: 8em; text-align: right; }
+        .aw-hist-filters { display: flex; gap: 0.5em; margin-bottom: 1em; flex-wrap: wrap; align-items: center; }
+        .aw-hist-filters select { padding: 0.4em 0.7em; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: inherit; font-size: 0.85em; }
+        .aw-hist-more { text-align: center; padding: 1em; }
+
         /* Utility */
         .aw-empty { text-align: center; padding: 3em; opacity: 0.4; }
         .aw-empty-icon { font-size: 2.5em; margin-bottom: 0.3em; }
@@ -107,6 +130,9 @@
             .aw-cover { width: 160px; }
             .aw-genres { justify-content: center; }
             .aw-grid { grid-template-columns: 1fr; }
+            .aw-stats { grid-template-columns: repeat(2, 1fr); }
+            .aw-hist-item { flex-direction: column; align-items: flex-start; }
+            .aw-hist-meta { width: 100%; justify-content: space-between; }
         }
     </style>
 </head>
@@ -121,6 +147,7 @@
                 <div class="aw-tabs">
                     <div class="aw-tab active" data-tab="search" onclick="AW.switchTab('search')">🔍 Search</div>
                     <div class="aw-tab" data-tab="downloads" onclick="AW.switchTab('downloads')">⬇️ Downloads <span id="aw-dl-badge" class="aw-badge" style="display:none">0</span></div>
+                    <div class="aw-tab" data-tab="history" onclick="AW.switchTab('history')">📊 History</div>
                 </div>
 
                 <div id="searchTab">
@@ -133,6 +160,12 @@
 
                 <div id="downloadsTab" style="display:none">
                     <div id="aw-downloads"></div>
+                </div>
+
+                <div id="historyTab" style="display:none">
+                    <div id="aw-history-stats"></div>
+                    <div id="aw-history-filters-container"></div>
+                    <div id="aw-history"></div>
                 </div>
             </div>
         </div>

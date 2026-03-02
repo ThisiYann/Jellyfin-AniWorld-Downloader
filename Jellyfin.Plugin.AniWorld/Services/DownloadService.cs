@@ -17,14 +17,24 @@ namespace Jellyfin.Plugin.AniWorld.Services;
 /// <summary>
 /// Manages downloads from aniworld.to using ffmpeg.
 /// Supports retry with exponential backoff, provider fallback,
-/// and automatic Jellyfin library scanning after completion.
+/// automatic Jellyfin library scanning after completion,
+/// and persistent download history via SQLite.
 /// </summary>
 public class DownloadService
 {
     private const int DefaultMaxRetries = 3;
     private const int BaseRetryDelayMs = 3000;
 
+    private static readonly Regex SeasonEpisodeFromUrl = new(
+        @"/staffel-(?<season>\d+)/episode-(?<episode>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex MovieFromUrl = new(
+        @"/filme/film-(?<num>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private readonly AniWorldService _aniWorldService;
+    private readonly DownloadHistoryService _historyService;
     private readonly IEnumerable<IStreamExtractor> _extractors;
     private readonly ILibraryMonitor _libraryMonitor;
     private readonly ILogger<DownloadService> _logger;
@@ -36,21 +46,26 @@ public class DownloadService
     /// </summary>
     public DownloadService(
         AniWorldService aniWorldService,
+        DownloadHistoryService historyService,
         IEnumerable<IStreamExtractor> extractors,
         ILibraryMonitor libraryMonitor,
         ILogger<DownloadService> logger)
     {
         _aniWorldService = aniWorldService;
+        _historyService = historyService;
         _extractors = extractors;
         _libraryMonitor = libraryMonitor;
         _logger = logger;
 
         var maxDownloads = Plugin.Instance?.Configuration.MaxConcurrentDownloads ?? 2;
         _downloadSemaphore = new SemaphoreSlim(maxDownloads, maxDownloads);
+
+        // Mark any downloads that were in-progress when Jellyfin last shut down
+        _historyService.MarkInterruptedDownloads();
     }
 
     /// <summary>
-    /// Gets all active download tasks.
+    /// Gets all active download tasks (in-memory, currently running).
     /// </summary>
     public List<DownloadTask> GetActiveDownloads()
     {
@@ -67,6 +82,14 @@ public class DownloadService
     }
 
     /// <summary>
+    /// Checks whether an episode has already been successfully downloaded.
+    /// </summary>
+    public bool IsAlreadyDownloaded(string episodeUrl, string language)
+    {
+        return _historyService.IsAlreadyDownloaded(episodeUrl, language);
+    }
+
+    /// <summary>
     /// Starts a download for an episode.
     /// </summary>
     public Task<string> StartDownloadAsync(
@@ -74,9 +97,14 @@ public class DownloadService
         string languageKey,
         string provider,
         string outputPath,
+        string seriesTitle,
         CancellationToken cancellationToken = default)
     {
         var taskId = Guid.NewGuid().ToString("N")[..12];
+
+        // Parse season/episode from URL for history tracking
+        var (season, episode) = ParseSeasonEpisode(episodeUrl);
+
         var task = new DownloadTask
         {
             Id = taskId,
@@ -84,12 +112,18 @@ public class DownloadService
             Provider = provider,
             Language = languageKey,
             OutputPath = outputPath,
+            SeriesTitle = seriesTitle,
+            Season = season,
+            Episode = episode,
             Status = DownloadStatus.Queued,
             StartedAt = DateTime.UtcNow,
             MaxRetries = Plugin.Instance?.Configuration.MaxRetries ?? DefaultMaxRetries,
         };
 
         _activeTasks[taskId] = task;
+
+        // Persist initial state to SQLite
+        _historyService.SaveDownload(task, seriesTitle, season, episode);
 
         // Run in background
         _ = Task.Run(async () => await ExecuteDownloadWithRetryAsync(task, cancellationToken).ConfigureAwait(false), cancellationToken);
@@ -106,6 +140,7 @@ public class DownloadService
         {
             task.CancellationSource?.Cancel();
             task.Status = DownloadStatus.Cancelled;
+            _historyService.UpdateDownload(task);
             return true;
         }
 
@@ -113,7 +148,7 @@ public class DownloadService
     }
 
     /// <summary>
-    /// Removes a completed/failed/cancelled download from the list.
+    /// Removes a completed/failed/cancelled download from the active list.
     /// </summary>
     public bool RemoveDownload(string taskId)
     {
@@ -131,7 +166,7 @@ public class DownloadService
     }
 
     /// <summary>
-    /// Clears all completed, failed, and cancelled downloads.
+    /// Clears all completed, failed, and cancelled downloads from the active list.
     /// </summary>
     public int ClearCompleted()
     {
@@ -161,6 +196,8 @@ public class DownloadService
             task.RetryCount = 0;
             task.Progress = 0;
 
+            _historyService.UpdateDownload(task);
+
             _ = Task.Run(async () => await ExecuteDownloadWithRetryAsync(task, CancellationToken.None).ConfigureAwait(false));
             return true;
         }
@@ -183,6 +220,7 @@ public class DownloadService
             if (token.IsCancellationRequested)
             {
                 task.Status = DownloadStatus.Cancelled;
+                _historyService.UpdateDownload(task);
                 return;
             }
 
@@ -192,6 +230,7 @@ public class DownloadService
                 var delayMs = BaseRetryDelayMs * (int)Math.Pow(2, attempt - 1);
                 task.Status = DownloadStatus.Retrying;
                 task.Error = $"Retry {attempt}/{maxRetries} in {delayMs / 1000}s...";
+                _historyService.UpdateDownload(task);
                 _logger.LogInformation("Retry {Attempt}/{MaxRetries} for {Url} in {Delay}ms",
                     attempt, maxRetries, task.EpisodeUrl, delayMs);
 
@@ -202,6 +241,7 @@ public class DownloadService
                 catch (OperationCanceledException)
                 {
                     task.Status = DownloadStatus.Cancelled;
+                    _historyService.UpdateDownload(task);
                     return;
                 }
 
@@ -215,19 +255,21 @@ public class DownloadService
 
                 if (task.Status == DownloadStatus.Completed)
                 {
-                    // Trigger library scan for the downloaded file
+                    _historyService.UpdateDownload(task);
                     TriggerLibraryScan(task.OutputPath);
                     return;
                 }
 
                 if (task.Status == DownloadStatus.Cancelled)
                 {
+                    _historyService.UpdateDownload(task);
                     return;
                 }
             }
             catch (OperationCanceledException)
             {
                 task.Status = DownloadStatus.Cancelled;
+                _historyService.UpdateDownload(task);
                 return;
             }
             catch (Exception ex)
@@ -240,10 +282,10 @@ public class DownloadService
                 {
                     task.Status = DownloadStatus.Failed;
                     task.Error = $"Failed after {maxRetries + 1} attempts: {ex.Message}";
+                    _historyService.UpdateDownload(task);
                     _logger.LogError(ex, "Download permanently failed for {Url} after {Attempts} attempts",
                         task.EpisodeUrl, maxRetries + 1);
 
-                    // Clean up partial file
                     CleanupPartialFile(task.OutputPath);
                     return;
                 }
@@ -259,15 +301,23 @@ public class DownloadService
             await _downloadSemaphore.WaitAsync(token).ConfigureAwait(false);
             semaphoreAcquired = true;
             task.Status = DownloadStatus.Resolving;
+            _historyService.UpdateDownload(task);
 
             // 1. Get episode details
             var details = await _aniWorldService.GetEpisodeDetailsAsync(task.EpisodeUrl, token).ConfigureAwait(false);
             task.EpisodeTitle = details.TitleEn ?? details.TitleDe ?? "Unknown";
 
+            // 2. Rename output path to include episode title if available
+            var newPath = InsertEpisodeTitleInPath(task.OutputPath, task.EpisodeTitle);
+            if (newPath != task.OutputPath)
+            {
+                task.OutputPath = newPath;
+                _logger.LogDebug("Updated output path with episode title: {Path}", newPath);
+            }
+
             if (!details.ProvidersByLanguage.TryGetValue(task.Language, out var providers) ||
                 !providers.TryGetValue(task.Provider, out var redirectUrl))
             {
-                // Try to fallback to another provider
                 var fallbackResult = TryFindFallbackProvider(details, task.Language, task.Provider);
                 if (fallbackResult == null)
                 {
@@ -280,11 +330,11 @@ public class DownloadService
                 _logger.LogInformation("Falling back to provider {Provider} for {Url}", task.Provider, task.EpisodeUrl);
             }
 
-            // 2. Resolve redirect to provider embed URL
+            // 3. Resolve redirect to provider embed URL
             var embedUrl = await _aniWorldService.ResolveRedirectAsync(redirectUrl, token).ConfigureAwait(false);
             _logger.LogInformation("Resolved to embed URL: {EmbedUrl}", embedUrl);
 
-            // 3. Extract direct stream URL
+            // 4. Extract direct stream URL
             var extractor = _extractors.FirstOrDefault(e =>
                 e.ProviderName.Equals(task.Provider, StringComparison.OrdinalIgnoreCase));
 
@@ -294,6 +344,7 @@ public class DownloadService
             }
 
             task.Status = DownloadStatus.Extracting;
+            _historyService.UpdateDownload(task);
             var streamUrl = await extractor.GetDirectLinkAsync(embedUrl, token).ConfigureAwait(false);
 
             if (string.IsNullOrEmpty(streamUrl))
@@ -303,11 +354,11 @@ public class DownloadService
 
             _logger.LogInformation("Stream URL: {StreamUrl}", streamUrl);
 
-            // 4. Download with ffmpeg
+            // 5. Download with ffmpeg
             task.Status = DownloadStatus.Downloading;
             task.StreamUrl = streamUrl;
+            _historyService.UpdateDownload(task);
 
-            // Ensure output directory exists
             var dir = Path.GetDirectoryName(task.OutputPath);
             if (!string.IsNullOrEmpty(dir))
             {
@@ -346,8 +397,70 @@ public class DownloadService
     }
 
     /// <summary>
+    /// Inserts the episode title into the filename.
+    /// Transforms "SeriesName - S01E01.mkv" into "SeriesName - S01E01 - Episode Title.mkv".
+    /// </summary>
+    private static string InsertEpisodeTitleInPath(string outputPath, string episodeTitle)
+    {
+        if (string.IsNullOrWhiteSpace(episodeTitle) || episodeTitle == "Unknown")
+        {
+            return outputPath;
+        }
+
+        var dir = Path.GetDirectoryName(outputPath) ?? string.Empty;
+        var fileName = Path.GetFileNameWithoutExtension(outputPath);
+        var ext = Path.GetExtension(outputPath);
+
+        // Match pattern like "SeriesName - S01E01" or "SeriesName - S00E01"
+        var match = Regex.Match(fileName, @"^(.+ - S\d{2}E\d{2})$");
+        if (match.Success)
+        {
+            var safeTitle = SanitizeFileName(episodeTitle);
+            // Truncate very long titles to keep filenames reasonable
+            if (safeTitle.Length > 80)
+            {
+                safeTitle = safeTitle[..77] + "...";
+            }
+
+            var newName = $"{match.Groups[1].Value} - {safeTitle}{ext}";
+            return Path.Combine(dir, newName);
+        }
+
+        return outputPath;
+    }
+
+    /// <summary>
+    /// Sanitizes a file/folder name by removing invalid characters.
+    /// </summary>
+    private static string SanitizeFileName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sanitized = new string(name.Where(c => !invalid.Contains(c)).ToArray());
+        return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized.Trim();
+    }
+
+    /// <summary>
+    /// Parses season and episode numbers from an aniworld.to URL.
+    /// </summary>
+    private static (int season, int episode) ParseSeasonEpisode(string url)
+    {
+        var seMatch = SeasonEpisodeFromUrl.Match(url);
+        if (seMatch.Success)
+        {
+            return (int.Parse(seMatch.Groups["season"].Value), int.Parse(seMatch.Groups["episode"].Value));
+        }
+
+        var movieMatch = MovieFromUrl.Match(url);
+        if (movieMatch.Success)
+        {
+            return (0, int.Parse(movieMatch.Groups["num"].Value));
+        }
+
+        return (0, 0);
+    }
+
+    /// <summary>
     /// Tries to find a fallback provider when the preferred one is unavailable.
-    /// Checks known extractors in order of preference: VOE, Filemoon, Vidmoly, Vidoza.
     /// </summary>
     private (string provider, string url)? TryFindFallbackProvider(
         EpisodeDetails details,
@@ -359,7 +472,6 @@ public class DownloadService
             return null;
         }
 
-        // Priority order for fallback
         var providerPriority = new[] { "VOE", "Filemoon", "Vidmoly", "Vidoza" };
         var extractorNames = _extractors.Select(e => e.ProviderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -377,7 +489,6 @@ public class DownloadService
             }
         }
 
-        // Try any available provider we have an extractor for
         foreach (var (name, url) in providers)
         {
             if (!name.Equals(excludeProvider, StringComparison.OrdinalIgnoreCase) &&
@@ -448,7 +559,6 @@ public class DownloadService
             throw new InvalidOperationException("ffmpeg not found. Please ensure ffmpeg is installed.");
         }
 
-        // Build ffmpeg command - use -reconnect flags for more reliable HLS downloads
         var args = $"-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 " +
                    $"-i \"{task.StreamUrl}\" -c copy -bsf:a aac_adtstoasc -y \"{task.OutputPath}\"";
 
@@ -469,7 +579,6 @@ public class DownloadService
 
         process.Start();
 
-        // Parse ffmpeg progress from stderr
         var progressPattern = new Regex(@"time=(?<time>\d+:\d+:\d+\.\d+)", RegexOptions.Compiled);
         var durationPattern = new Regex(@"Duration:\s*(?<dur>\d+:\d+:\d+\.\d+)", RegexOptions.Compiled);
         var sizePattern = new Regex(@"size=\s*(?<size>\d+)kB", RegexOptions.Compiled);
@@ -500,7 +609,6 @@ public class DownloadService
                     }
                 }
 
-                // Track download size
                 var sizeMatch = sizePattern.Match(line);
                 if (sizeMatch.Success && long.TryParse(sizeMatch.Groups["size"].Value, out var sizeKb))
                 {
@@ -589,6 +697,15 @@ public class DownloadTask
 
     /// <summary>Gets or sets the episode title.</summary>
     public string? EpisodeTitle { get; set; }
+
+    /// <summary>Gets or sets the series title.</summary>
+    public string SeriesTitle { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the season number.</summary>
+    public int Season { get; set; }
+
+    /// <summary>Gets or sets the episode number.</summary>
+    public int Episode { get; set; }
 
     /// <summary>Gets or sets the provider name.</summary>
     public string Provider { get; set; } = string.Empty;

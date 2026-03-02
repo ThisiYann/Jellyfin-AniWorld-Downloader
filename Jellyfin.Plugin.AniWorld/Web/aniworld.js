@@ -6,6 +6,9 @@ const AW = {
     lastSearchResults: null,
     downloadPollInterval: null,
     activeDownloadCount: 0,
+    historyOffset: 0,
+    historyStatusFilter: null,
+    historySeriesFilter: null,
 
     // ── Tab switching ──
     switchTab: function (tab) {
@@ -13,12 +16,19 @@ const AW = {
         document.querySelector('[data-tab="' + tab + '"]').classList.add('active');
         document.getElementById('searchTab').style.display = tab === 'search' ? '' : 'none';
         document.getElementById('downloadsTab').style.display = tab === 'downloads' ? '' : 'none';
+        document.getElementById('historyTab').style.display = tab === 'history' ? '' : 'none';
 
         if (tab === 'downloads') {
             this.loadDownloads();
             this.startPolling();
         } else {
             this.stopPolling();
+        }
+
+        if (tab === 'history') {
+            this.historyOffset = 0;
+            this.loadStats();
+            this.loadHistory(true);
         }
     },
 
@@ -185,6 +195,7 @@ const AW = {
             html += '<div class="aw-ep" id="' + epId + '">';
             html += '<span class="aw-ep-num">' + label + '</span>';
             html += '<span class="aw-ep-title" id="' + epId + '-title">Loading...</span>';
+            html += '<span class="aw-ep-downloaded" id="' + epId + '-dl" style="display:none">✓ Downloaded</span>';
             html += '<div class="aw-ep-actions">';
             html += '<button class="aw-btn aw-btn-primary aw-btn-sm" onclick="AW.downloadEpisode(\'' + encodeURIComponent(ep.Url) + '\')">⬇️ Download</button>';
             html += '<button class="aw-btn aw-btn-secondary aw-btn-sm" onclick="AW.toggleProviders(\'' + encodeURIComponent(ep.Url) + '\', \'' + epId + '\')">Providers</button>';
@@ -195,10 +206,12 @@ const AW = {
         html += '</div>';
         epContainer.innerHTML = html;
 
+        // Load titles and check download status
         episodes.forEach(function (ep, idx) {
             var epId = 'ep-' + ep.Number + '-' + (ep.IsMovie ? 'movie' : 'ep');
             setTimeout(function () {
                 AW.fetchEpisodeTitle(ep.Url, epId);
+                AW.checkIsDownloaded(ep.Url, epId);
             }, idx * 150);
         });
     },
@@ -222,6 +235,19 @@ const AW = {
         }).catch(function () {
             if (titleEl) titleEl.textContent = '—';
         });
+    },
+
+    checkIsDownloaded: function (url, epId) {
+        ApiClient.fetch({
+            url: ApiClient.getUrl('AniWorld/IsDownloaded', { url: url }),
+            type: 'GET',
+            dataType: 'json'
+        }).then(function (result) {
+            if (result && result.downloaded) {
+                var badge = document.getElementById(epId + '-dl');
+                if (badge) badge.style.display = '';
+            }
+        }).catch(function () { /* ignore */ });
     },
 
     // ── Providers ──
@@ -358,7 +384,7 @@ const AW = {
         AW.updateBadge(active);
 
         if (!downloads || downloads.length === 0) {
-            container.innerHTML = '<div class="aw-empty"><div class="aw-empty-icon">📭</div>No downloads yet.<br>Search for anime and start downloading!</div>';
+            container.innerHTML = '<div class="aw-empty"><div class="aw-empty-icon">📭</div>No active downloads.<br>Search for anime and start downloading!</div>';
             return;
         }
 
@@ -473,6 +499,141 @@ const AW = {
         }
     },
 
+    // ── History Tab ──
+    loadStats: function () {
+        ApiClient.fetch({
+            url: ApiClient.getUrl('AniWorld/Stats'),
+            type: 'GET',
+            dataType: 'json'
+        }).then(function (stats) {
+            AW.renderStats(stats);
+        }).catch(function () {
+            var container = document.getElementById('aw-history-stats');
+            if (container) container.innerHTML = '';
+        });
+    },
+
+    renderStats: function (stats) {
+        var container = document.getElementById('aw-history-stats');
+        if (!container) return;
+
+        var html = '<div class="aw-stats">';
+        html += '<div class="aw-stat"><div class="aw-stat-value">' + stats.TotalDownloads + '</div><div class="aw-stat-label">Total Downloads</div></div>';
+        html += '<div class="aw-stat"><div class="aw-stat-value green">' + stats.Completed + '</div><div class="aw-stat-label">Completed</div></div>';
+        html += '<div class="aw-stat"><div class="aw-stat-value red">' + stats.Failed + '</div><div class="aw-stat-label">Failed</div></div>';
+        html += '<div class="aw-stat"><div class="aw-stat-value">' + formatSize(stats.TotalBytes) + '</div><div class="aw-stat-label">Total Size</div></div>';
+        html += '<div class="aw-stat"><div class="aw-stat-value orange">' + stats.UniqueSeriesCount + '</div><div class="aw-stat-label">Series</div></div>';
+        html += '</div>';
+        container.innerHTML = html;
+    },
+
+    loadHistory: function (reset) {
+        if (reset) {
+            this.historyOffset = 0;
+        }
+
+        var params = { limit: 30, offset: this.historyOffset };
+        if (this.historyStatusFilter) params.status = this.historyStatusFilter;
+        if (this.historySeriesFilter) params.series = this.historySeriesFilter;
+
+        ApiClient.fetch({
+            url: ApiClient.getUrl('AniWorld/History', params),
+            type: 'GET',
+            dataType: 'json'
+        }).then(function (records) {
+            AW.renderHistory(records, reset);
+            AW.renderHistoryFilters();
+        }).catch(function () {
+            var container = document.getElementById('aw-history');
+            if (container) container.innerHTML = '<div class="aw-empty">Failed to load history.</div>';
+        });
+    },
+
+    renderHistoryFilters: function () {
+        var container = document.getElementById('aw-history-filters-container');
+        if (!container) return;
+
+        // Only render once
+        if (container.dataset.rendered === 'true') return;
+        container.dataset.rendered = 'true';
+
+        var html = '<div class="aw-hist-filters">';
+        html += '<select id="aw-hist-status" onchange="AW.filterHistory()">';
+        html += '<option value="">All Status</option>';
+        html += '<option value="Completed">✅ Completed</option>';
+        html += '<option value="Failed">❌ Failed</option>';
+        html += '<option value="Cancelled">⛔ Cancelled</option>';
+        html += '</select>';
+        html += '<input type="text" id="aw-hist-series" placeholder="Filter by series..." style="padding:0.4em 0.7em;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:inherit;font-size:0.85em;min-width:200px;" />';
+        html += '<button class="aw-btn aw-btn-secondary aw-btn-sm" onclick="AW.filterHistory()">Filter</button>';
+        html += '</div>';
+        container.innerHTML = html;
+    },
+
+    filterHistory: function () {
+        var statusEl = document.getElementById('aw-hist-status');
+        var seriesEl = document.getElementById('aw-hist-series');
+        this.historyStatusFilter = statusEl ? statusEl.value || null : null;
+        this.historySeriesFilter = seriesEl ? seriesEl.value.trim() || null : null;
+        this.loadHistory(true);
+    },
+
+    renderHistory: function (records, reset) {
+        var container = document.getElementById('aw-history');
+        if (!container) return;
+
+        if ((!records || records.length === 0) && reset) {
+            container.innerHTML = '<div class="aw-empty"><div class="aw-empty-icon">📭</div>No download history yet.<br>Downloaded episodes will appear here.</div>';
+            return;
+        }
+
+        var langNames = { '1': '🇩🇪 DE Dub', '2': '🇬🇧 EN Sub', '3': '🇩🇪 DE Sub' };
+        var html = reset ? '<div class="aw-history">' : '';
+
+        records.forEach(function (rec) {
+            var statusCls = 'aw-status-' + rec.Status.toLowerCase();
+            var title = rec.EpisodeTitle || '';
+            var seLabel = 'S' + String(rec.Season).padStart(2, '0') + 'E' + String(rec.Episode).padStart(2, '0');
+
+            html += '<div class="aw-hist-item">';
+            html += '<div class="aw-hist-info">';
+            html += '<strong>' + esc(rec.SeriesTitle) + ' ' + seLabel;
+            if (title) html += ' - ' + esc(title);
+            html += '</strong>';
+            html += '<small>' + esc(rec.Provider) + ' · ' + esc(langNames[rec.Language] || rec.Language);
+            if (rec.Error) html += ' · ' + esc(rec.Error.substring(0, 60));
+            html += '</small>';
+            html += '</div>';
+            html += '<div class="aw-hist-meta">';
+            if (rec.FileSizeBytes > 0) {
+                html += '<span class="aw-hist-size">' + formatSize(rec.FileSizeBytes) + '</span>';
+            }
+            html += '<span class="aw-status ' + statusCls + '">' + esc(rec.Status) + '</span>';
+            html += '<span class="aw-hist-date">' + formatDate(rec.StartedAt) + '</span>';
+            html += '</div>';
+            html += '</div>';
+        });
+
+        if (reset) {
+            html += '</div>';
+            container.innerHTML = html;
+        } else {
+            var histDiv = container.querySelector('.aw-history');
+            if (histDiv) {
+                histDiv.insertAdjacentHTML('beforeend', html);
+            }
+        }
+
+        // Show "load more" if we got a full page
+        var moreContainer = container.querySelector('.aw-hist-more');
+        if (moreContainer) moreContainer.remove();
+
+        if (records && records.length >= 30) {
+            AW.historyOffset += records.length;
+            container.insertAdjacentHTML('beforeend', '<div class="aw-hist-more"><button class="aw-btn aw-btn-secondary" onclick="AW.loadHistory(false)">Load More</button></div>');
+        }
+    },
+
     goBack: function () {
         if (this.lastSearchResults) {
             this.renderSearchResults(this.lastSearchResults);
@@ -493,10 +654,32 @@ function esc(str) {
 }
 
 function formatSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+
+function formatDate(isoStr) {
+    if (!isoStr) return '—';
+    try {
+        var d = new Date(isoStr);
+        var now = new Date();
+        var diffMs = now - d;
+        var diffMins = Math.floor(diffMs / 60000);
+
+        if (diffMins < 1) return 'just now';
+        if (diffMins < 60) return diffMins + 'm ago';
+        var diffHrs = Math.floor(diffMins / 60);
+        if (diffHrs < 24) return diffHrs + 'h ago';
+        var diffDays = Math.floor(diffHrs / 24);
+        if (diffDays < 7) return diffDays + 'd ago';
+
+        return d.toLocaleDateString();
+    } catch (e) {
+        return isoStr;
+    }
 }
 
 // Bind Enter key to search

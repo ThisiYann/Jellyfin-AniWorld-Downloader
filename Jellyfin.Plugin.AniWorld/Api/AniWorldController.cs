@@ -38,6 +38,7 @@ public class AniWorldController : ControllerBase
 
     private readonly AniWorldService _aniWorldService;
     private readonly DownloadService _downloadService;
+    private readonly DownloadHistoryService _historyService;
     private readonly IServerConfigurationManager _configManager;
 
     /// <summary>
@@ -46,12 +47,16 @@ public class AniWorldController : ControllerBase
     public AniWorldController(
         AniWorldService aniWorldService,
         DownloadService downloadService,
+        DownloadHistoryService historyService,
         IServerConfigurationManager configManager)
     {
         _aniWorldService = aniWorldService;
         _downloadService = downloadService;
+        _historyService = historyService;
         _configManager = configManager;
     }
+
+    // ── Search & Browse ─────────────────────────────────────────────
 
     /// <summary>
     /// Search for anime on aniworld.to.
@@ -105,9 +110,11 @@ public class AniWorldController : ControllerBase
         return Ok(details);
     }
 
+    // ── Downloads ───────────────────────────────────────────────────
+
     /// <summary>
     /// Start downloading an episode. Automatically constructs the proper file path
-    /// following Jellyfin naming conventions: SeriesName/Season XX/SeriesName - SXXEXX.mkv
+    /// following Jellyfin naming conventions: SeriesName/Season XX/SeriesName - SXXEXX - EpisodeTitle.mkv
     /// </summary>
     [HttpPost("Download")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -133,7 +140,12 @@ public class AniWorldController : ControllerBase
         var provider = request.Provider ?? config?.PreferredProvider ?? "VOE";
         var seriesTitle = request.SeriesTitle ?? "Unknown Anime";
 
-        // Build proper output path: basePath/SeriesName/Season XX/SeriesName - SXXEXX.mkv
+        // Check if already downloaded (duplicate detection)
+        if (!request.Force && _downloadService.IsAlreadyDownloaded(request.EpisodeUrl, language))
+        {
+            return BadRequest("This episode has already been downloaded with this language. Set 'Force' to true to re-download.");
+        }
+
         var outputPath = BuildOutputPath(basePath, seriesTitle, request.EpisodeUrl);
 
         var taskId = await _downloadService.StartDownloadAsync(
@@ -141,6 +153,7 @@ public class AniWorldController : ControllerBase
             language,
             provider,
             outputPath,
+            seriesTitle,
             cancellationToken).ConfigureAwait(false);
 
         var task = _downloadService.GetDownload(taskId);
@@ -174,7 +187,6 @@ public class AniWorldController : ControllerBase
         var provider = request.Provider ?? config?.PreferredProvider ?? "VOE";
         var seriesTitle = request.SeriesTitle ?? "Unknown Anime";
 
-        // Get all episodes for this season
         var episodes = await _aniWorldService.GetEpisodesAsync(request.SeasonUrl, cancellationToken).ConfigureAwait(false);
 
         if (episodes.Count == 0)
@@ -188,8 +200,14 @@ public class AniWorldController : ControllerBase
         {
             var outputPath = BuildOutputPath(basePath, seriesTitle, ep.Url);
 
-            // Skip if file already exists
+            // Skip if file already exists on disk
             if (System.IO.File.Exists(outputPath))
+            {
+                continue;
+            }
+
+            // Skip if already downloaded in history (unless forced)
+            if (_downloadService.IsAlreadyDownloaded(ep.Url, language))
             {
                 continue;
             }
@@ -199,6 +217,7 @@ public class AniWorldController : ControllerBase
                 language,
                 provider,
                 outputPath,
+                seriesTitle,
                 cancellationToken).ConfigureAwait(false);
 
             var task = _downloadService.GetDownload(taskId);
@@ -212,7 +231,7 @@ public class AniWorldController : ControllerBase
     }
 
     /// <summary>
-    /// Get all active/recent downloads.
+    /// Get all active/recent downloads (in-memory).
     /// </summary>
     [HttpGet("Downloads")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -255,7 +274,7 @@ public class AniWorldController : ControllerBase
     }
 
     /// <summary>
-    /// Clear completed/failed downloads from the list.
+    /// Clear completed/failed downloads from the active list.
     /// </summary>
     [HttpPost("Downloads/Clear")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -281,10 +300,91 @@ public class AniWorldController : ControllerBase
         return NotFound(new { error = "Download not found or not in failed state" });
     }
 
+    // ── History & Stats ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Get persistent download history from the database.
+    /// Survives Jellyfin restarts unlike the active downloads list.
+    /// </summary>
+    [HttpGet("History")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<List<DownloadHistoryRecord>> GetHistory(
+        int limit = 50,
+        int offset = 0,
+        string? status = null,
+        string? series = null)
+    {
+        var records = _historyService.GetHistory(limit, offset, status, series);
+        return Ok(records);
+    }
+
+    /// <summary>
+    /// Get download statistics (total downloads, bytes, series count, etc).
+    /// </summary>
+    [HttpGet("Stats")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<DownloadStats> GetStats()
+    {
+        var stats = _historyService.GetStats();
+        return Ok(stats);
+    }
+
+    /// <summary>
+    /// Get the list of unique series that have been downloaded.
+    /// </summary>
+    [HttpGet("Series/Downloaded")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<List<string>> GetDownloadedSeries()
+    {
+        var series = _historyService.GetDownloadedSeries();
+        return Ok(series);
+    }
+
+    /// <summary>
+    /// Check if an episode has already been downloaded.
+    /// </summary>
+    [HttpGet("IsDownloaded")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<object> CheckIsDownloaded([Required] string url, string? language = null)
+    {
+        var lang = language ?? Plugin.Instance?.Configuration.PreferredLanguage ?? "1";
+        var downloaded = _downloadService.IsAlreadyDownloaded(url, lang);
+        return Ok(new { downloaded, url, language = lang });
+    }
+
+    /// <summary>
+    /// Delete a specific history record.
+    /// </summary>
+    [HttpDelete("History/{id}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult DeleteHistoryRecord(string id)
+    {
+        if (_historyService.DeleteRecord(id))
+        {
+            return Ok(new { success = true });
+        }
+
+        return NotFound();
+    }
+
+    /// <summary>
+    /// Clean up old history records.
+    /// </summary>
+    [HttpPost("History/Cleanup")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult CleanupHistory(int days = 90)
+    {
+        var removed = _historyService.CleanupOld(days);
+        return Ok(new { removed });
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
     /// <summary>
     /// Builds a Jellyfin-compatible output path from the episode URL.
     /// Format: basePath/SeriesName/Season XX/SeriesName - SXXEXX.mkv
-    /// For movies: basePath/SeriesName/Specials/SeriesName - S00EXX.mkv
+    /// (Episode title is added later by DownloadService after resolving episode details.)
     /// </summary>
     private static string BuildOutputPath(string basePath, string seriesTitle, string episodeUrl)
     {
@@ -343,6 +443,9 @@ public class DownloadRequest
 
     /// <summary>Gets or sets the series title for file naming.</summary>
     public string? SeriesTitle { get; set; }
+
+    /// <summary>Gets or sets whether to force re-download even if already downloaded.</summary>
+    public bool Force { get; set; }
 
     /// <summary>Gets or sets the output path (deprecated, use config instead).</summary>
     public string? OutputPath { get; set; }
