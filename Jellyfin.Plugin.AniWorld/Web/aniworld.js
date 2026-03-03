@@ -161,6 +161,7 @@ export default function (view, params) {
             html += '</div></div>';
 
             if (series.Seasons && series.Seasons.length > 0) {
+                html += '<div class="aw-series-actions">';
                 html += '<div class="aw-seasons">';
                 series.Seasons.forEach(function (season, idx) {
                     var cls = idx === 0 ? ' active' : '';
@@ -169,6 +170,10 @@ export default function (view, params) {
                 if (series.HasMovies) {
                     var movieUrl = seriesUrl + '/filme';
                     html += '<button class="aw-season" data-url="' + esc(movieUrl) + '" onclick="window.AW.loadSeason(\'' + encodeURIComponent(movieUrl) + '\', this)">\uD83C\uDFAC Movies</button>';
+                }
+                html += '</div>';
+                if (series.Seasons.length > 1) {
+                    html += '<button class="aw-btn aw-btn-success" onclick="window.AW.downloadAllSeasons(\'' + encodeURIComponent(seriesUrl) + '\')">\u2B07\uFE0F Download All Seasons</button>';
                 }
                 html += '</div>';
             }
@@ -394,7 +399,42 @@ export default function (view, params) {
                     Dashboard.alert('All episodes already downloaded or no episodes found.');
                 }
             }).catch(function (err) {
-                Dashboard.alert('Batch download failed: ' + (err.message || 'Unknown error'));
+                AW._handleApiError(err, 'Batch download failed');
+            });
+        },
+
+        downloadAllSeasons: function (encodedSeriesUrl) {
+            var seriesUrl = decodeURIComponent(encodedSeriesUrl);
+            var body = {
+                SeriesUrl: seriesUrl,
+                SeriesTitle: this.currentSeriesTitle
+            };
+
+            // Use language selector if present
+            var langSelect = view.querySelector('#aw-season-lang');
+            if (langSelect && langSelect.value) {
+                body.LanguageKey = langSelect.value;
+            }
+
+            ApiClient.fetch({
+                url: ApiClient.getUrl('AniWorld/DownloadAll'),
+                type: 'POST',
+                data: JSON.stringify(body),
+                contentType: 'application/json',
+                dataType: 'json'
+            }).then(function (result) {
+                var msg = 'Queued ' + result.queued + ' episode(s) across ' + result.seasons + ' season(s)!';
+                if (result.skipped > 0) {
+                    msg += ' (' + result.skipped + ' already downloaded)';
+                }
+                if (result.queued > 0) {
+                    Dashboard.alert(msg);
+                    AW.switchTab('downloads');
+                } else {
+                    Dashboard.alert('All episodes already downloaded!');
+                }
+            }).catch(function (err) {
+                AW._handleApiError(err, 'Download all failed');
             });
         },
 
@@ -416,8 +456,22 @@ export default function (view, params) {
                 Dashboard.alert('Download started: ' + (task.EpisodeTitle || task.OutputPath || task.Id));
                 AW.updateBadge(AW.activeDownloadCount + 1);
             }).catch(function (err) {
-                Dashboard.alert('Download failed: ' + (err.message || 'Unknown error'));
+                AW._handleApiError(err, 'Download failed');
             });
+        },
+
+        _handleApiError: function (err, prefix) {
+            // Jellyfin ApiClient rejects with a Response object, not an Error
+            if (err && typeof err.json === 'function') {
+                err.json().then(function (body) {
+                    var msg = body.detail || body.title || body.error || JSON.stringify(body);
+                    Dashboard.alert(prefix + ': ' + msg);
+                }).catch(function () {
+                    Dashboard.alert(prefix + ': HTTP ' + (err.status || 'error'));
+                });
+            } else {
+                Dashboard.alert(prefix + ': ' + (err.message || 'Unknown error'));
+            }
         },
 
         // ── Downloads Tab ──

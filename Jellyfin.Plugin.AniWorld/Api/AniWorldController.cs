@@ -231,6 +231,115 @@ public class AniWorldController : ControllerBase
     }
 
     /// <summary>
+    /// Start downloading all episodes across all seasons of a series (full series batch download).
+    /// </summary>
+    [HttpPost("DownloadAll")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<object>> DownloadAllSeasons(
+        [FromBody] FullSeriesDownloadRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(request.SeriesUrl))
+        {
+            return BadRequest("Series URL is required");
+        }
+
+        var config = Plugin.Instance?.Configuration;
+        var basePath = config?.DownloadPath ?? string.Empty;
+
+        if (string.IsNullOrEmpty(basePath))
+        {
+            return BadRequest("No download path configured. Please set a download path in the plugin settings.");
+        }
+
+        var language = request.LanguageKey ?? config?.PreferredLanguage ?? "1";
+        var provider = request.Provider ?? config?.PreferredProvider ?? "VOE";
+
+        // Get series info to enumerate all seasons
+        var seriesInfo = await _aniWorldService.GetSeriesInfoAsync(request.SeriesUrl, cancellationToken).ConfigureAwait(false);
+        var seriesTitle = request.SeriesTitle ?? seriesInfo.Title ?? "Unknown Anime";
+
+        if (seriesInfo.Seasons == null || seriesInfo.Seasons.Count == 0)
+        {
+            return BadRequest("No seasons found for this series.");
+        }
+
+        var allTasks = new List<DownloadTask>();
+        var skippedCount = 0;
+
+        foreach (var season in seriesInfo.Seasons)
+        {
+            var episodes = await _aniWorldService.GetEpisodesAsync(season.Url, cancellationToken).ConfigureAwait(false);
+
+            foreach (var ep in episodes)
+            {
+                var outputPath = BuildOutputPath(basePath, seriesTitle, ep.Url);
+
+                if (System.IO.File.Exists(outputPath) || _downloadService.IsAlreadyDownloaded(ep.Url, language))
+                {
+                    skippedCount++;
+                    continue;
+                }
+
+                var taskId = await _downloadService.StartDownloadAsync(
+                    ep.Url,
+                    language,
+                    provider,
+                    outputPath,
+                    seriesTitle,
+                    cancellationToken).ConfigureAwait(false);
+
+                var task = _downloadService.GetDownload(taskId);
+                if (task != null)
+                {
+                    allTasks.Add(task);
+                }
+            }
+        }
+
+        // Also handle movies if they exist
+        if (seriesInfo.HasMovies)
+        {
+            var movieUrl = request.SeriesUrl.TrimEnd('/') + "/filme";
+            var movies = await _aniWorldService.GetEpisodesAsync(movieUrl, cancellationToken).ConfigureAwait(false);
+
+            foreach (var ep in movies)
+            {
+                var outputPath = BuildOutputPath(basePath, seriesTitle, ep.Url);
+
+                if (System.IO.File.Exists(outputPath) || _downloadService.IsAlreadyDownloaded(ep.Url, language))
+                {
+                    skippedCount++;
+                    continue;
+                }
+
+                var taskId = await _downloadService.StartDownloadAsync(
+                    ep.Url,
+                    language,
+                    provider,
+                    outputPath,
+                    seriesTitle,
+                    cancellationToken).ConfigureAwait(false);
+
+                var task = _downloadService.GetDownload(taskId);
+                if (task != null)
+                {
+                    allTasks.Add(task);
+                }
+            }
+        }
+
+        return Ok(new
+        {
+            queued = allTasks.Count,
+            skipped = skippedCount,
+            seasons = seriesInfo.Seasons.Count,
+            tasks = allTasks
+        });
+    }
+
+    /// <summary>
     /// Get all active/recent downloads (in-memory).
     /// </summary>
     [HttpGet("Downloads")]
@@ -467,6 +576,24 @@ public class BatchDownloadRequest
 {
     /// <summary>Gets or sets the season URL.</summary>
     public string SeasonUrl { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the language key.</summary>
+    public string? LanguageKey { get; set; }
+
+    /// <summary>Gets or sets the provider.</summary>
+    public string? Provider { get; set; }
+
+    /// <summary>Gets or sets the series title for file naming.</summary>
+    public string? SeriesTitle { get; set; }
+}
+
+/// <summary>
+/// Full series download request — downloads all seasons.
+/// </summary>
+public class FullSeriesDownloadRequest
+{
+    /// <summary>Gets or sets the series URL.</summary>
+    public string SeriesUrl { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the language key.</summary>
     public string? LanguageKey { get; set; }

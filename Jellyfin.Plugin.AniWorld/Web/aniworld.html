@@ -50,8 +50,12 @@
         .aw-genres { display: flex; gap: 0.4em; flex-wrap: wrap; margin: 0.8em 0; }
         .aw-genre { background: rgba(0,164,220,0.2); border: 1px solid rgba(0,164,220,0.3); padding: 0.2em 0.6em; border-radius: 12px; font-size: 0.78em; }
 
+        /* Series actions (seasons + download all) */
+        .aw-series-actions { display: flex; justify-content: space-between; align-items: flex-start; gap: 1em; margin-bottom: 1.2em; }
+        .aw-series-actions > .aw-btn { flex-shrink: 0; white-space: nowrap; align-self: center; }
+
         /* Season pills */
-        .aw-seasons { display: flex; gap: 0.4em; flex-wrap: wrap; margin-bottom: 1.2em; }
+        .aw-seasons { display: flex; gap: 0.4em; flex-wrap: wrap; flex: 1; }
         .aw-season { padding: 0.45em 1.1em; border-radius: 20px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: inherit; cursor: pointer; font-size: 0.85em; transition: all 0.2s; }
         .aw-season:hover { background: rgba(0,164,220,0.15); border-color: rgba(0,164,220,0.3); }
         .aw-season.active { background: rgba(0,164,220,0.3); border-color: #00a4dc; color: #fff; }
