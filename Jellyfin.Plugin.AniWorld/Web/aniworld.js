@@ -47,6 +47,7 @@ export default function (view, params) {
         historyOffset: 0,
         historyStatusFilter: null,
         historySeriesFilter: null,
+        seasonGeneration: 0,
 
         // ── Tab switching ──
         switchTab: function (tab) {
@@ -188,6 +189,10 @@ export default function (view, params) {
                 btn.classList.add('active');
             }
 
+            // Increment generation to cancel any in-flight episode title loads
+            this.seasonGeneration++;
+            var myGeneration = this.seasonGeneration;
+
             var url = decodeURIComponent(encodedUrl);
             this.currentSeasonUrl = url;
             var epContainer = view.querySelector('#aw-episodes');
@@ -202,13 +207,16 @@ export default function (view, params) {
                 type: 'GET',
                 dataType: 'json'
             }).then(function (episodes) {
-                AW.renderEpisodes(episodes, url);
+                // Only render if this is still the current season
+                if (AW.seasonGeneration !== myGeneration) return;
+                AW.renderEpisodes(episodes, url, myGeneration);
             }).catch(function (err) {
+                if (AW.seasonGeneration !== myGeneration) return;
                 epContainer.innerHTML = '<div class="aw-empty">Failed to load episodes: ' + esc(err.message || '') + '</div>';
             });
         },
 
-        renderEpisodes: function (episodes, seasonUrl) {
+        renderEpisodes: function (episodes, seasonUrl, generation) {
             var epContainer = view.querySelector('#aw-episodes');
             var barContainer = view.querySelector('#aw-season-bar');
 
@@ -221,7 +229,13 @@ export default function (view, params) {
             if (barContainer) {
                 var bar = '<div class="aw-season-actions">';
                 bar += '<span class="aw-ep-count">' + episodes.length + ' episode' + (episodes.length === 1 ? '' : 's') + '</span>';
-                bar += '<button class="aw-btn aw-btn-success aw-btn-sm" onclick="window.AW.downloadSeason(\'' + encodeURIComponent(seasonUrl) + '\')">\u2B07\uFE0F Download All</button>';
+                bar += '<select id="aw-season-lang" class="aw-lang-select" title="Language for Download Season">';
+                bar += '<option value="">\uD83C\uDF10 Use Settings Default</option>';
+                bar += '<option value="1">\uD83C\uDDE9\uD83C\uDDEA German Dub</option>';
+                bar += '<option value="2">\uD83C\uDDEC\uD83C\uDDE7 English Sub</option>';
+                bar += '<option value="3">\uD83C\uDDE9\uD83C\uDDEA German Sub</option>';
+                bar += '</select>';
+                bar += '<button class="aw-btn aw-btn-success aw-btn-sm" onclick="window.AW.downloadSeason(\'' + encodeURIComponent(seasonUrl) + '\')">\u2B07\uFE0F Download Season</button>';
                 bar += '</div>';
                 barContainer.innerHTML = bar;
             }
@@ -244,17 +258,20 @@ export default function (view, params) {
             html += '</div>';
             epContainer.innerHTML = html;
 
-            // Load titles and check download status
+            // Load titles and check download status (with race condition guard)
+            var myGen = generation || AW.seasonGeneration;
             episodes.forEach(function (ep, idx) {
                 var epId = 'ep-' + ep.Number + '-' + (ep.IsMovie ? 'movie' : 'ep');
                 setTimeout(function () {
-                    AW.fetchEpisodeTitle(ep.Url, epId);
+                    // Abort if user has switched seasons
+                    if (AW.seasonGeneration !== myGen) return;
+                    AW.fetchEpisodeTitle(ep.Url, epId, myGen);
                     AW.checkIsDownloaded(ep.Url, epId);
                 }, idx * 150);
             });
         },
 
-        fetchEpisodeTitle: function (url, epId) {
+        fetchEpisodeTitle: function (url, epId, generation) {
             var titleEl = view.querySelector('#' + epId + '-title');
             if (!titleEl) return;
 
@@ -263,6 +280,8 @@ export default function (view, params) {
                 type: 'GET',
                 dataType: 'json'
             }).then(function (details) {
+                // Abort if user has switched seasons since this request started
+                if (generation !== undefined && AW.seasonGeneration !== generation) return;
                 titleEl = view.querySelector('#' + epId + '-title');
                 if (!titleEl) return;
                 var title = details.TitleEn || details.TitleDe || '';
@@ -272,6 +291,7 @@ export default function (view, params) {
                     titleEl.textContent = title || '\u2014';
                 }
             }).catch(function () {
+                if (generation !== undefined && AW.seasonGeneration !== generation) return;
                 titleEl = view.querySelector('#' + epId + '-title');
                 if (titleEl) titleEl.textContent = '\u2014';
             });
@@ -352,6 +372,12 @@ export default function (view, params) {
                 SeasonUrl: seasonUrl,
                 SeriesTitle: this.currentSeriesTitle
             };
+
+            // Include language selection if user picked one
+            var langSelect = view.querySelector('#aw-season-lang');
+            if (langSelect && langSelect.value) {
+                body.LanguageKey = langSelect.value;
+            }
 
             ApiClient.fetch({
                 url: ApiClient.getUrl('AniWorld/DownloadSeason'),

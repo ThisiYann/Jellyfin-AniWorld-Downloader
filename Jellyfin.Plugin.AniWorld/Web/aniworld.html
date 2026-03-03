@@ -57,8 +57,10 @@
         .aw-season.active { background: rgba(0,164,220,0.3); border-color: #00a4dc; color: #fff; }
 
         /* Season actions bar */
-        .aw-season-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8em; padding: 0.5em 0; }
-        .aw-season-actions .aw-ep-count { opacity: 0.5; font-size: 0.85em; }
+        .aw-season-actions { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8em; padding: 0.5em 0; gap: 0.6em; }
+        .aw-season-actions .aw-ep-count { opacity: 0.5; font-size: 0.85em; flex: 1; }
+        .aw-lang-select { padding: 0.3em 0.7em; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: inherit; font-size: 0.82em; cursor: pointer; }
+        .aw-lang-select:focus { border-color: #00a4dc; outline: none; }
 
         /* Episode list */
         .aw-episodes { display: flex; flex-direction: column; gap: 0.4em; }

@@ -417,12 +417,21 @@ public class AniWorldController : ControllerBase
     }
 
     /// <summary>
-    /// Sanitizes a file/folder name by removing invalid characters.
+    /// Sanitizes a file/folder name by removing invalid and problematic characters.
+    /// Strips characters that cause issues on Windows, SMB shares, and some media players:
+    /// : ? ! * " &lt; &gt; | in addition to OS-level invalid chars.
+    /// Apostrophes are preserved as simple '.
     /// </summary>
     private static string SanitizeFileName(string name)
     {
         var invalid = Path.GetInvalidFileNameChars();
-        var sanitized = new string(name.Where(c => !invalid.Contains(c)).ToArray());
+        // Additional chars that are problematic on Windows/SMB/media players
+        var extraInvalid = new[] { ':', '?', '!', '*', '"', '<', '>', '|' };
+        var sanitized = new string(name
+            .Where(c => !invalid.Contains(c) && !extraInvalid.Contains(c))
+            .ToArray());
+        // Collapse multiple spaces that may result from removals
+        sanitized = Regex.Replace(sanitized, @"\s{2,}", " ");
         return string.IsNullOrWhiteSpace(sanitized) ? "Unknown" : sanitized.Trim();
     }
 }
