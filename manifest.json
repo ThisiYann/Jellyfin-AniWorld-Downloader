@@ -1,0 +1,11 @@
+[
+  {
+    "guid": "e93d1d02-df60-4545-ae3c-7bb87dff024c",
+    "name": "AniWorld Downloader",
+    "overview": "Download anime from aniworld.to directly within Jellyfin",
+    "description": "Search, browse, and download anime from aniworld.to directly within Jellyfin. Supports VOE, Filemoon, Vidoza, and Vidmoly providers with German Dub, English Sub, and German Sub options.",
+    "owner": "SiroxCW",
+    "category": "General",
+    "versions": []
+  }
+]

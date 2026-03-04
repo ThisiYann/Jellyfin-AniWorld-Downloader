@@ -1,0 +1,95 @@
+name: Release Plugin
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Build
+        run: dotnet build Jellyfin.Plugin.AniWorld/Jellyfin.Plugin.AniWorld.csproj --configuration Release
+
+      - name: Package
+        run: |
+          mkdir -p release
+          cp Jellyfin.Plugin.AniWorld/bin/Release/net9.0/Jellyfin.Plugin.AniWorld.dll release/
+          cp Jellyfin.Plugin.AniWorld/meta.json release/
+          cd release && zip ../aniworld-downloader-${{ github.event.release.tag_name }}.zip *
+
+      - name: Compute checksum
+        id: checksum
+        run: echo "md5=$(md5sum aniworld-downloader-${{ github.event.release.tag_name }}.zip | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "aniworld-downloader-${{ github.event.release.tag_name }}.zip" --clobber
+
+      - name: Update manifest
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          CHECKSUM: ${{ steps.checksum.outputs.md5 }}
+          REPO: ${{ github.repository }}
+        run: |
+          VERSION="${TAG#v}"
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          SOURCE_URL="https://github.com/${REPO}/releases/download/${TAG}/aniworld-downloader-${TAG}.zip"
+          TARGET_ABI=$(python3 -c "import json; print(json.load(open('Jellyfin.Plugin.AniWorld/meta.json'))['targetAbi'])")
+
+          python3 << 'PYEOF'
+          import json, os
+
+          version = os.environ["VERSION"]
+          checksum = os.environ["CHECKSUM"]
+          source_url = os.environ["SOURCE_URL"]
+          timestamp = os.environ["TIMESTAMP"]
+          target_abi = os.environ["TARGET_ABI"]
+
+          with open("Jellyfin.Plugin.AniWorld/meta.json", "r") as f:
+              meta = json.load(f)
+          changelog = meta.get("changelog", "")
+
+          with open("manifest.json", "r") as f:
+              manifest = json.load(f)
+
+          new_version = {
+              "version": version,
+              "changelog": changelog,
+              "targetAbi": target_abi,
+              "sourceUrl": source_url,
+              "checksum": checksum,
+              "timestamp": timestamp,
+          }
+
+          manifest[0]["versions"] = [
+              v for v in manifest[0]["versions"]
+              if v["version"] != version
+          ]
+          manifest[0]["versions"].insert(0, new_version)
+
+          with open("manifest.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+          PYEOF
+
+      - name: Commit manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git diff --cached --quiet || git commit -m "chore: update manifest for ${{ github.event.release.tag_name }}"
+          git push origin HEAD:main

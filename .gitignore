@@ -7,3 +7,4 @@ obj/
 *.swp
 *.sln.docstates
 packages/
+.idea/
