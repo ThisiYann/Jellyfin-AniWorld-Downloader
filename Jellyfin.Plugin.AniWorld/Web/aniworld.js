@@ -56,11 +56,14 @@ export default function (view, params) {
         historySeriesFilter: null,
         seasonGeneration: 0,
 
+        browseLoaded: { popular: false, new: false },
+
         // ── Tab switching ──
         switchTab: function (tab) {
             view.querySelectorAll('.aw-tab').forEach(function (t) { t.classList.remove('active'); });
             view.querySelector('[data-tab="' + tab + '"]').classList.add('active');
             view.querySelector('#searchTab').style.display = tab === 'search' ? '' : 'none';
+            view.querySelector('#browseTab').style.display = tab === 'browse' ? '' : 'none';
             view.querySelector('#downloadsTab').style.display = tab === 'downloads' ? '' : 'none';
             view.querySelector('#historyTab').style.display = tab === 'history' ? '' : 'none';
 
@@ -76,6 +79,64 @@ export default function (view, params) {
                 this.loadStats();
                 this.loadHistory(true);
             }
+
+            if (tab === 'browse' && !this.browseLoaded.popular) {
+                this.loadBrowseSection('popular');
+            }
+        },
+
+        // ── Browse ──
+        switchBrowseSection: function (section, btn) {
+            view.querySelectorAll('.aw-browse-pill').forEach(function (b) { b.classList.remove('active'); });
+            if (btn) btn.classList.add('active');
+            this.loadBrowseSection(section);
+        },
+
+        loadBrowseSection: function (section) {
+            var container = view.querySelector('#aw-browse-content');
+            if (!container) return;
+
+            if (this.browseLoaded[section]) {
+                // Re-render from cache
+                this.renderBrowseItems(this['browseCache_' + section] || [], container);
+                return;
+            }
+
+            container.innerHTML = '<div class="aw-loading"><span class="aw-spinner"></span> Loading...</div>';
+
+            var endpoint = section === 'new' ? 'AniWorld/New' : 'AniWorld/Popular';
+            ApiClient.fetch({
+                url: ApiClient.getUrl(endpoint),
+                type: 'GET',
+                dataType: 'json'
+            }).then(function (items) {
+                AW.browseLoaded[section] = true;
+                AW['browseCache_' + section] = items;
+                AW.renderBrowseItems(items, container);
+            }).catch(function (err) {
+                container.innerHTML = '<div class="aw-empty"><div class="aw-empty-icon">❌</div>Failed to load: ' + esc(err.message || 'Unknown error') + '</div>';
+            });
+        },
+
+        renderBrowseItems: function (items, container) {
+            if (!items || items.length === 0) {
+                container.innerHTML = '<div class="aw-empty"><div class="aw-empty-icon">📭</div>No anime found.</div>';
+                return;
+            }
+
+            var html = '<div class="aw-browse-grid">';
+            items.forEach(function (item) {
+                html += '<div class="aw-browse-card" onclick="window.AW.showSeries(\'' + encodeURIComponent(item.Url) + '\', \'' + escJs(item.Title) + '\')">';
+                html += '<img class="aw-browse-cover" src="' + esc(item.CoverImageUrl) + '" alt="' + esc(item.Title) + '" loading="lazy" onerror="this.style.display=\'none\'" />';
+                html += '<div class="aw-browse-info">';
+                html += '<h3>' + esc(item.Title) + '</h3>';
+                if (item.Genre) {
+                    html += '<small>' + esc(item.Genre) + '</small>';
+                }
+                html += '</div></div>';
+            });
+            html += '</div>';
+            container.innerHTML = html;
         },
 
         // ── Search ──
@@ -123,6 +184,19 @@ export default function (view, params) {
         showSeries: function (encodedUrl, title) {
             var url = decodeURIComponent(encodedUrl);
             this.currentSeriesUrl = url;
+
+            // If called from browse tab, switch to search tab to show the detail view
+            // and remember where to go back to
+            var browseTab = view.querySelector('#browseTab');
+            if (browseTab && browseTab.style.display !== 'none') {
+                this.browseReturnTo = true;
+                // Show search tab for detail view
+                view.querySelectorAll('.aw-tab').forEach(function (t) { t.classList.remove('active'); });
+                view.querySelector('[data-tab="search"]').classList.add('active');
+                view.querySelector('#searchTab').style.display = '';
+                view.querySelector('#browseTab').style.display = 'none';
+            }
+
             var content = view.querySelector('#aw-content');
             content.innerHTML = '<div class="aw-loading"><span class="aw-spinner"></span> Loading series info...</div>';
 
@@ -762,7 +836,11 @@ export default function (view, params) {
         },
 
         goBack: function () {
-            if (this.lastSearchResults) {
+            if (this.browseReturnTo) {
+                // Return to browse tab
+                this.switchTab('browse');
+                this.browseReturnTo = null;
+            } else if (this.lastSearchResults) {
                 this.renderSearchResults(this.lastSearchResults);
             } else if (this.lastSearchQuery) {
                 view.querySelector('#aw-search-input').value = this.lastSearchQuery;

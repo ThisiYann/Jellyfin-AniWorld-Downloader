@@ -246,6 +246,87 @@ public class AniWorldService
     }
 
     /// <summary>
+    /// Gets the popular anime list from aniworld.to/beliebte-animes.
+    /// </summary>
+    public async Task<List<BrowseItem>> GetPopularAsync(CancellationToken cancellationToken = default)
+    {
+        var html = await FetchPageAsync($"{BaseUrl}/beliebte-animes", cancellationToken).ConfigureAwait(false);
+        return ParseBrowseItems(html);
+    }
+
+    /// <summary>
+    /// Gets newly added anime from the aniworld.to homepage ("Neue Animes" section).
+    /// </summary>
+    public async Task<List<BrowseItem>> GetNewReleasesAsync(CancellationToken cancellationToken = default)
+    {
+        var html = await FetchPageAsync(BaseUrl, cancellationToken).ConfigureAwait(false);
+
+        // Extract only the "Neue Animes" section
+        var newSectionIdx = html.IndexOf("Neue Anime", StringComparison.OrdinalIgnoreCase);
+        if (newSectionIdx < 0)
+        {
+            _logger.LogWarning("Could not find 'Neue Animes' section on homepage");
+            return new List<BrowseItem>();
+        }
+
+        // Find the container after the heading
+        var sectionHtml = html[newSectionIdx..];
+        // Limit to the next major section (next carousel or footer)
+        var nextSection = sectionHtml.IndexOf("<div class=\"homeContentPromotionBox", 10, StringComparison.OrdinalIgnoreCase);
+        if (nextSection < 0)
+        {
+            nextSection = sectionHtml.IndexOf("<footer", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (nextSection > 0)
+        {
+            sectionHtml = sectionHtml[..nextSection];
+        }
+
+        return ParseBrowseItems(sectionHtml);
+    }
+
+    /// <summary>
+    /// Parses browse items (popular/new) from HTML containing coverListItem elements.
+    /// </summary>
+    private List<BrowseItem> ParseBrowseItems(string html)
+    {
+        var items = new List<BrowseItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Pattern for coverListItem entries
+        var itemPattern = new Regex(
+            @"<div\s+class=""coverListItem"">\s*<a\s+href=""(?<url>/anime/stream/[^""]+)""[^>]*title=""(?<title>[^""]+)""[^>]*>.*?data-src=""(?<cover>[^""]+)"".*?<h3>\s*(?<name>[^<]+?)\s*</h3>\s*(?:<small>(?<genre>[^<]*)</small>)?",
+            RegexOptions.Singleline | RegexOptions.Compiled);
+
+        foreach (Match match in itemPattern.Matches(html))
+        {
+            var url = $"{BaseUrl}{match.Groups["url"].Value}";
+
+            // Deduplicate by URL
+            if (!seen.Add(url))
+            {
+                continue;
+            }
+
+            var coverPath = match.Groups["cover"].Value;
+            var coverUrl = coverPath.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+                ? coverPath
+                : $"{BaseUrl}{coverPath}";
+
+            items.Add(new BrowseItem
+            {
+                Title = DecodeHtml(match.Groups["name"].Value.Trim()),
+                Url = url,
+                CoverImageUrl = coverUrl,
+                Genre = match.Groups["genre"].Success ? DecodeHtml(match.Groups["genre"].Value.Trim()) : string.Empty,
+            });
+        }
+
+        return items;
+    }
+
+    /// <summary>
     /// Resolves a redirect URL to the actual provider embed URL.
     /// </summary>
     /// <param name="redirectUrl">The aniworld.to redirect URL.</param>
@@ -383,6 +464,24 @@ public class EpisodeRef
 
     /// <summary>Gets or sets whether this is a movie.</summary>
     public bool IsMovie { get; set; }
+}
+
+/// <summary>
+/// An anime item from the browse (popular/new) lists.
+/// </summary>
+public class BrowseItem
+{
+    /// <summary>Gets or sets the title.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the URL.</summary>
+    public string Url { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the cover image URL.</summary>
+    public string CoverImageUrl { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the genre label.</summary>
+    public string Genre { get; set; } = string.Empty;
 }
 
 /// <summary>

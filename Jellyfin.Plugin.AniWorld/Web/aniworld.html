@@ -125,6 +125,21 @@
         .aw-hist-filters select { padding: 0.4em 0.7em; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; color: inherit; font-size: 0.85em; }
         .aw-hist-more { text-align: center; padding: 1em; }
 
+        /* Browse tabs */
+        .aw-browse-tabs { display: flex; gap: 0.5em; margin-bottom: 1.5em; }
+        .aw-browse-pill { padding: 0.5em 1.2em; border-radius: 20px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: inherit; cursor: pointer; font-size: 0.9em; transition: all 0.2s; }
+        .aw-browse-pill:hover { background: rgba(0,164,220,0.15); border-color: rgba(0,164,220,0.3); }
+        .aw-browse-pill.active { background: rgba(0,164,220,0.3); border-color: #00a4dc; color: #fff; }
+
+        /* Browse grid with cover images */
+        .aw-browse-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1em; }
+        .aw-browse-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; overflow: hidden; cursor: pointer; transition: all 0.2s; }
+        .aw-browse-card:hover { background: rgba(255,255,255,0.08); border-color: rgba(0,164,220,0.3); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .aw-browse-cover { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: rgba(255,255,255,0.03); }
+        .aw-browse-info { padding: 0.6em 0.8em; }
+        .aw-browse-info h3 { margin: 0; font-size: 0.85em; color: #fff; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .aw-browse-info small { display: block; margin-top: 0.3em; opacity: 0.5; font-size: 0.75em; }
+
         /* Utility */
         .aw-empty { text-align: center; padding: 3em; opacity: 0.4; }
         .aw-empty-icon { font-size: 2.5em; margin-bottom: 0.3em; }
@@ -142,6 +157,7 @@
             .aw-stats { grid-template-columns: repeat(2, 1fr); }
             .aw-hist-item { flex-direction: column; align-items: flex-start; }
             .aw-hist-meta { width: 100%; justify-content: space-between; }
+            .aw-browse-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.6em; }
         }
         </style>
         <div data-role="content">
@@ -153,6 +169,7 @@
 
                 <div class="aw-tabs">
                     <div class="aw-tab active" data-tab="search" onclick="window.AW.switchTab('search')">🔍 Search</div>
+                    <div class="aw-tab" data-tab="browse" onclick="window.AW.switchTab('browse')">🌟 Browse</div>
                     <div class="aw-tab" data-tab="downloads" onclick="window.AW.switchTab('downloads')">⬇️ Downloads <span id="aw-dl-badge" class="aw-badge" style="display:none">0</span></div>
                     <div class="aw-tab" data-tab="history" onclick="window.AW.switchTab('history')">📊 History</div>
                 </div>
@@ -163,6 +180,14 @@
                         <button class="aw-btn aw-btn-primary" onclick="window.AW.search()">Search</button>
                     </div>
                     <div id="aw-content"></div>
+                </div>
+
+                <div id="browseTab" style="display:none">
+                    <div class="aw-browse-tabs">
+                        <button class="aw-browse-pill active" data-section="popular" onclick="window.AW.switchBrowseSection('popular', this)">🔥 Popular</button>
+                        <button class="aw-browse-pill" data-section="new" onclick="window.AW.switchBrowseSection('new', this)">✨ New Releases</button>
+                    </div>
+                    <div id="aw-browse-content"></div>
                 </div>
 
                 <div id="downloadsTab" style="display:none">

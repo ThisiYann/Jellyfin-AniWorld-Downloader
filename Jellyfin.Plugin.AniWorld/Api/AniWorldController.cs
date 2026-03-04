@@ -115,6 +115,28 @@ public class AniWorldController : ControllerBase
         return Ok(details);
     }
 
+    /// <summary>
+    /// Get popular anime from aniworld.to.
+    /// </summary>
+    [HttpGet("Popular")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<BrowseItem>>> GetPopular(CancellationToken cancellationToken)
+    {
+        var items = await _aniWorldService.GetPopularAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(items);
+    }
+
+    /// <summary>
+    /// Get newly added anime from aniworld.to.
+    /// </summary>
+    [HttpGet("New")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<BrowseItem>>> GetNewReleases(CancellationToken cancellationToken)
+    {
+        var items = await _aniWorldService.GetNewReleasesAsync(cancellationToken).ConfigureAwait(false);
+        return Ok(items);
+    }
+
     // ── Downloads ───────────────────────────────────────────────────
 
     /// <summary>
